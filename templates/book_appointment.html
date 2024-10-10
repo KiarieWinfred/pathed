@@ -1,0 +1,29 @@
+{% extends "base.html" %}
+
+{% block title %}Book Appointment{% endblock %}
+
+{% block content %}
+    <section class="login-section">
+        <h2>Appointment Booking</h2>
+        <p>Please answer the following questions to ensure smooth experience during consultation</p>
+        <form method="POST" action="{{ url_for('main.book_appointment') }}">
+            {{ form.hidden_tag() }}
+            <div class="form-group">
+                {{ form.purpose.label }} 
+                {{ form.purpose(class="form-control") }}
+            </div>
+            <div class="form-group">
+                {{ form.appointment_time.label }} 
+                {{ form.appointment_time(class="form-control") }}
+            </div>
+            <div class="form-group">
+                {{ form.notes.label }} 
+                {{ form.notes(class="form-control") }}
+            </div>
+            <div class="form-group">
+                {{ form.submit(class="btn btn-primary") }}
+            </div>
+        </form>
+        
+    </section>
+{% endblock %}
