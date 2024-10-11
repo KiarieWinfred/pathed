@@ -1,12 +1,19 @@
-from flask import render_template, redirect, url_for, flash, Blueprint, session
+from flask import render_template, redirect, url_for, flash, Blueprint, session, request, jsonify
 from flask_login import login_user, logout_user, current_user, login_required
 from . import db
 from .models import User, Doctor
 from .forms import PhoneNumberForm, OTPForm, DoctorLoginForm, AppointmentForm
 from werkzeug.security import check_password_hash
+import os
+from dotenv import load_dotenv
+from openai import OpenAI
 
 # Create the blueprint for main routes
 main = Blueprint('main', __name__)
+
+
+
+load_dotenv()
 
 # Home route
 @main.route('/')
@@ -19,17 +26,9 @@ def patient_login():
     phone_form = PhoneNumberForm()
     otp_form = OTPForm()
 
-    # Debugging statements
-    print(f"Phone form submitted: {phone_form.validate_on_submit()}")
-    print(f"OTP form submitted: {otp_form.validate_on_submit()}")
-    print(f"Phone number (submitted): {phone_form.phone_number.data}")
-    print(f"OTP code (submitted): {otp_form.otp_code.data}")
-    print(f"Session phone number: {session.get('phone_number')}")
-    print(f"Session OTP: {session.get('generated_otp')}")
-
     # Handle phone number submission
     if not session.get('otp_sent') and phone_form.validate_on_submit() and phone_form.phone_number.data:
-        phone_number = phone_form.phone_number.data.replace('-', '').replace(' ', '')
+        phone_number = phone_form.phone_number.data
 
         # Simulate sending OTP (hardcoded '123456')
         generated_otp = "123456"
@@ -40,9 +39,6 @@ def patient_login():
         session['generated_otp'] = generated_otp
         session['otp_sent'] = True
 
-        # Debugging: print session info
-        print(f"Phone number saved in session: {session['phone_number']}")
-        print(f"Generated OTP saved in session: {session['generated_otp']}")
 
         # Redirect to allow OTP input
         return redirect(url_for('main.patient_login'))
@@ -65,7 +61,7 @@ def patient_login():
 
                 # Debugging: successful login
                 print("Login successful.")
-                return redirect(url_for('main.patient_dashboard'))
+                return redirect(url_for('main.book_appointment'))
             else:
                 flash('Phone number not found. Please register first.', 'danger')
         else:
@@ -87,6 +83,107 @@ def book_appointment():
         flash('Appointment booked successfully!', 'success')
         return redirect(url_for('main.home'))  # Redirect to home or another page after booking
     return render_template('book_appointment.html', form=form)
+
+# Function to initialize the OpenAI API client
+# Initialize OpenAI client function
+def initialize_openai():
+    try:
+        return OpenAI(
+            api_key=os.getenv("API_KEY"),  # Load API key from environment
+            base_url="https://api.aimlapi.com"
+        )
+    except Exception as e:
+        print(f"Error initializing OpenAI client: {e}")
+        return None
+
+# Dynamic Questionnaire - generates next question
+def dynamic_patient_questionnaire(conversation_history):
+    client = initialize_openai()
+    if client is None:
+        return "Sorry, there was an error connecting to the AI service."
+
+    # Create a prompt from the entire conversation history
+    prompt = "\n".join(conversation_history) + "\nBased on this information, please generate the next relevant question."
+
+    # Send the prompt to OpenAI to generate the next question
+    try:
+        response = client.chat.completions.create(
+            model="o1-preview",  # Adjust model version as needed
+            messages=[{"role": "user", "content": prompt}],
+            max_tokens=1000
+        )
+        next_question = response.choices[0].message.content.strip()
+        return next_question
+
+    except Exception as e:
+        print(f"Error during OpenAI API call for next question: {e}")
+        return "Sorry, there was an error generating the next question."
+
+# Generate diagnosis based on conversation
+def generate_diagnosis(conversation_history):
+    client = initialize_openai()
+    if client is None:
+        return "Sorry, there was an error connecting to the AI service."
+
+    # Format the conversation history into a diagnostic prompt
+    prompt_for_diagnosis = "Here are the patient's responses:\n"
+    for response in conversation_history:
+        prompt_for_diagnosis += f"{response}\n"
+    
+    prompt_for_diagnosis += "Please provide 3-5 differential diagnoses along with recommended tests."
+
+    try:
+        response = client.chat.completions.create(
+            model="o1-preview",
+            messages=[{"role": "user", "content": prompt_for_diagnosis}],
+            max_tokens=1000
+        )
+        diagnosis = response.choices[0].message.content.strip()
+        return diagnosis
+
+    except Exception as e:
+        print(f"Error during OpenAI API call for differential diagnosis: {e}")
+        return "Sorry, there was an error generating the diagnosis."
+
+# Flask route for chatting with the AI
+@main.route('/chat-with-ai', methods=['GET','POST'])
+def chat_with_ai():
+    data = request.get_json()  # Use request.get_json() to retrieve JSON payload
+    if data is None or 'msg' not in data:
+        return jsonify({"error": "Invalid input"}), 400  # Handle bad input explicitly
+
+    patient_message = data.get("msg")  # Safely get the message from the JSON payload
+
+    if 'conversation_history' not in session:
+        session['conversation_history'] = []
+
+    # Add patient's message to the conversation history
+    session['conversation_history'].append(f"Patient: {patient_message}")
+    print("Conversation history:", session['conversation_history'])
+
+    # Generate the next question using the AI
+    next_question = dynamic_patient_questionnaire(session['conversation_history'])
+
+    # Append AI's next question to the conversation history
+    session['conversation_history'].append(f"AI: {next_question}")
+
+    # Return the next question to the chatbot interface
+    return jsonify({'response': next_question})
+
+# Flask route for generating the final diagnosis
+@main.route('/submit-diagnosis', methods=['POST'])
+def submit_diagnosis():
+    if 'conversation_history' not in session:
+        return jsonify({'error': 'No conversation history found'}), 400
+    
+    # Generate diagnosis based on conversation history
+    diagnosis = generate_diagnosis(session['conversation_history'])
+    
+    # Clear the conversation history (you might want to save it for future reference instead)
+    session.pop('conversation_history', None)
+    
+    # Return the diagnosis to the chatbot interface
+    return jsonify({'diagnosis': diagnosis})
 
 # Patient Dashboard route
 @main.route('/patient_dashboard')

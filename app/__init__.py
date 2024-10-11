@@ -1,4 +1,5 @@
 from flask import Flask
+from flask_wtf.csrf import CSRFProtect
 from flask_sqlalchemy import SQLAlchemy
 from flask_migrate import Migrate
 from flask_login import LoginManager
@@ -8,6 +9,7 @@ from config import Config
 db = SQLAlchemy()
 migrate = Migrate()
 login_manager = LoginManager()
+csrf = CSRFProtect()  # Initialize CSRFProtect outside the function
 
 def create_app(config_class=Config):
     app = Flask(__name__, template_folder='../templates', static_folder='../static')
@@ -15,6 +17,10 @@ def create_app(config_class=Config):
     # Apply configuration settings from config.py
     app.config.from_object(config_class)
     
+    # Initialize CSRF protection
+    csrf.init_app(app)
+    csrf._disable_on_debug = True  # Disable CSRF protection in debug mode, only for local testing
+
     # Initialize extensions
     db.init_app(app)
     migrate.init_app(app, db)

@@ -1,13 +1,15 @@
 import os
-import random
+from dotenv import load_dotenv
 from openai import OpenAI
+
+load_dotenv()
 
 # Function to initialize the OpenAI API client
 def initialize_openai():
     try:
         return OpenAI(
-            api_key="de1cd11f90b84bef979a279a8fd8a8eb",  # Replace with your actual API key
-            base_url="https://api.aimlapi.com"  # Replace with the correct base URL if necessary
+            api_key=os.getenv("API_KEY"),  # Load API key from environment
+            base_url="https://api.aimlapi.com"
         )
     except Exception as e:
         print(f"Error initializing OpenAI client: {e}")
@@ -19,20 +21,26 @@ def dynamic_patient_questionnaire():
     if client is None:
         return
 
+    # Initialize conversation history
+    conversation_history = []
+
     # Start with the first question
     current_question = "Which symptoms are you experiencing?"
-    patient_responses = []
 
-    for question_num in range(1, 11):  # Limit to 10 questions
+    for question_num in range(1, 6):  # Limit to 6 questions for now
         # Ask the current question and collect the patient's response
         print(f"Question {question_num}: {current_question}")
         patient_response = input("> ")
-        patient_responses.append(patient_response)
 
-        # Create a dynamic prompt incorporating previous responses
-        prompt = f"The patient has reported: '{' '.join(patient_responses)}'. Please generate the most relevant question to help narrow down the possible causes."
-        
+        # Append the current question and response to the conversation history
+        conversation_history.append(f"Medical Assistant: {current_question}")
+        conversation_history.append(f"Patient: {patient_response}")
+
+        # Create a prompt from the entire conversation history
+        prompt = "\n".join(conversation_history) + "\nBased on this information, please generate the next relevant question."
+
         print("Prompt:", prompt)
+
         # Send request to OpenAI to generate the next question
         try:
             response = client.chat.completions.create(
@@ -45,27 +53,36 @@ def dynamic_patient_questionnaire():
                 ],
                 max_tokens=1000,  # Increased tokens for detailed medical questions
             )
-            print("Response:", response)
             next_question = response.choices[0].message.content.strip()
-            print("next question is:", next_question)
-            if next_question:
-                current_question = next_question  # Prepare for next iteration
-                patient_responses = []
-            else:
-                print("No valid response, ending the process.")
-                break
+            print("Next question is:", next_question)
+
+            # Prepare for the next iteration
+            current_question = next_question
+            
         except Exception as e:
             print(f"Error during OpenAI API call for next question: {e}")
             break
 
     # After collecting responses, ask the model for a differential diagnosis
-    if patient_responses:
-        prompt_for_diagnosis = "Here are the patient's responses:\n"
-        for response in patient_responses:
-            prompt_for_diagnosis += f"- {response}\n"
+    # Function to generate a diagnosis after the conversation
+def generate_diagnosis(conversation_history):
+    client = initialize_openai()
+    if client is None:
+        return
+    if conversation_history:
+        # Initialize the prompt with the header
+        prompt_for_diagnosis = "Prompt for differential diagnosis:\nHere are the patient's responses:\n"
+        
+        # Format each response appropriately
+        for response in conversation_history:
+            # Assuming each response is a tuple (question, answer)
+            question, answer = response  # Unpack the tuple if it's structured this way
+            prompt_for_diagnosis += f"- {question}: {answer}\n"
 
-        prompt_for_diagnosis += "\nBased on this data, provide 3-5 differential diagnoses and the diagnostic criteria or tests to narrow down the diagnosis."
+        # Add the request for differential diagnoses
+        prompt_for_diagnosis += "\nPlease provide 3-5 differential diagnoses along with any recommended tests to narrow down the diagnosis."
 
+        print("Prompt for differential diagnosis:", prompt_for_diagnosis)
         try:
             response = client.chat.completions.create(
                 model="o1-preview",  # Adjust model version as needed
@@ -83,6 +100,7 @@ def dynamic_patient_questionnaire():
             print(f"Error during OpenAI API call for differential diagnosis: {e}")
     else:
         print("No patient responses recorded. Cannot proceed with diagnosis.")
+
 
 if __name__ == "__main__":
     dynamic_patient_questionnaire()
