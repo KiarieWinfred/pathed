@@ -4,6 +4,7 @@ from flask_sqlalchemy import SQLAlchemy
 from flask_migrate import Migrate
 from flask_login import LoginManager
 from config import Config
+from datetime import timedelta
 
 # Initialize extensions
 db = SQLAlchemy()
@@ -16,6 +17,10 @@ def create_app(config_class=Config):
 
     # Apply configuration settings from config.py
     app.config.from_object(config_class)
+
+    # session lifetime 
+    app.config['PERMANENT_SESSION_LIFETIME'] = timedelta(minutes=10)
+
     
     # Initialize CSRF protection
     csrf.init_app(app)
@@ -40,6 +45,7 @@ def create_app(config_class=Config):
     # Import and register blueprints
     from app.routes import main as main_blueprint
     app.register_blueprint(main_blueprint)
+    
 
     # Return the Flask app instance
     return app

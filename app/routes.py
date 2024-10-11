@@ -1,7 +1,8 @@
 from flask import render_template, redirect, url_for, flash, Blueprint, session, request, jsonify
 from flask_login import login_user, logout_user, current_user, login_required
 from . import db
-from .models import User, Doctor
+from datetime import datetime  # Importing datetime
+from .models import User, Doctor, Appointment
 from .forms import PhoneNumberForm, OTPForm, DoctorLoginForm, AppointmentForm
 from werkzeug.security import check_password_hash
 import os
@@ -146,8 +147,9 @@ def generate_diagnosis(conversation_history):
         return "Sorry, there was an error generating the diagnosis."
 
 # Flask route for chatting with the AI
-@main.route('/chat-with-ai', methods=['GET','POST'])
+@main.route('/chat-with-ai', methods=['GET', 'POST'])
 def chat_with_ai():
+    session.permanent = True
     data = request.get_json()  # Use request.get_json() to retrieve JSON payload
     if data is None or 'msg' not in data:
         return jsonify({"error": "Invalid input"}), 400  # Handle bad input explicitly
@@ -165,25 +167,58 @@ def chat_with_ai():
     next_question = dynamic_patient_questionnaire(session['conversation_history'])
 
     # Append AI's next question to the conversation history
-    session['conversation_history'].append(f"AI: {next_question}")
+    if next_question:
+        session['conversation_history'].append(f"AI: {next_question}")
 
-    # Return the next question to the chatbot interface
-    return jsonify({'response': next_question})
+        # Return the next question to the chatbot interface
+        return jsonify({'response': next_question})
+    else:
+        diagnosis = submit_diagnosis(session['conversation_history'])
+        # Adjust the endpoint to your actual patient dashboard
 
-# Flask route for generating the final diagnosis
-@main.route('/submit-diagnosis', methods=['POST'])
-def submit_diagnosis():
-    if 'conversation_history' not in session:
-        return jsonify({'error': 'No conversation history found'}), 400
+        return jsonify({'response': diagnosis})
+
+# Submit diagnosis route
+def submit_diagnosis(conversation):
+    # if 'conversation_history' not in session:
+    #     return jsonify({'error': 'No conversation history found'}), 400
     
     # Generate diagnosis based on conversation history
-    diagnosis = generate_diagnosis(session['conversation_history'])
+    diagnosis = generate_diagnosis(conversation)
+
+    # Clear conversation history
+    conversation_notes = "\n".join(session['conversation_history'] + [f"AI: {diagnosis}"])
     
-    # Clear the conversation history (you might want to save it for future reference instead)
-    session.pop('conversation_history', None)
+    # Extract purpose from the first question response (assuming it's the first AI response)
+    purpose = session['conversation_history'][0] if session['conversation_history'] else "General Consultation"
     
-    # Return the diagnosis to the chatbot interface
-    return jsonify({'diagnosis': diagnosis})
+    # Here, you should add logic to get the patient_id from the session or context
+    patient_id = session.get('patient_id')  # Assuming patient_id is stored in the session
+
+    # Create a new appointment entry
+    new_appointment = Appointment(
+        patient_id=patient_id,
+        appointment_time=datetime.utcnow(),  # Set to the current time or desired time
+        status="pending",  # Default status
+        purpose=purpose,
+        notes=conversation_notes
+    )
+
+    # Add the appointment to the database session and commit
+    db.session.add(new_appointment)
+    db.session.commit()
+
+    # Clear the conversation history
+    session.pop('conversation_history', None)  # Clear the conversation history
+    
+    # Flash a message or set session data if needed
+    flash("Your appointment has been confirmed. Here are your diagnosis criteria: " + diagnosis, "success")
+    # Add logic to seperate the diagnosis and recommended tests
+    # The patient should only receive the recommended tests in the flash message
+    
+
+    # Redirect to the patient dashboard
+    return redirect(url_for('patient_dashboard'))     
 
 # Patient Dashboard route
 @main.route('/patient_dashboard')
@@ -220,3 +255,8 @@ def logout():
     logout_user()
     flash('You have been logged out.', 'info')
     return redirect(url_for('main.home'))
+
+@main.route('/reset-chat', methods=['POST'])
+def reset_chat():
+    session.pop('conversation_history', None)  # Remove conversation history
+    return jsonify({'message': 'Conversation history cleared.'}), 200
