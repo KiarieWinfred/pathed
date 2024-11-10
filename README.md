@@ -89,10 +89,7 @@ Pathed provides patients with a conversational interface to interact with an AI 
 
 2. Access the application in your browser at `http://localhost:5000`.
 
-## Demo
 
-The application demo is hosted at: [https://your-pythonanywhere-username.pythonanywhere.com](https://your-pythonanywhere-username.pythonanywhere.com)  
-*Note*: Replace the link with your actual PythonAnywhere app URL.
 
 ## Usage
 
